@@ -1,1 +1,4 @@
-#!/bin/sh
+#!/bin/sh 
+
+echo "Hello world"
+yay -Syu

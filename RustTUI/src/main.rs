@@ -7,7 +7,7 @@ use crossterm::{
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
 use include_dir::{include_dir, Dir};
-use ratatui::{backend::CrosstermBackend, widgets::ListState, Terminal};
+use ratatui::{backend::CrosstermBackend, text::Line, widgets::ListState, Terminal};
 use serde::Deserialize;
 use std::io;
 
@@ -54,6 +54,11 @@ pub struct Category {
     pub scripts: Vec<Script>,
 }
 
+pub struct PreviewCache {
+    pub asset_path: String,
+    pub lines: Vec<Line<'static>>,
+}
+
 pub struct App {
     pub categories: Vec<Category>,
     pub selected_category: usize,
@@ -61,6 +66,7 @@ pub struct App {
     pub item_state: ListState,
     pub focus: Focus,
     pub popup: Popup,
+    pub preview_cache: Option<PreviewCache>,
 }
 
 impl App {
@@ -83,6 +89,7 @@ impl App {
             item_state,
             focus: Focus::Sidebar,
             popup: Popup::None,
+            preview_cache: None,
         }
     }
 
