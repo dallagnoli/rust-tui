@@ -1,0 +1,4 @@
+[[script]]
+name = "Update System"
+description = "Runs a full system update"
+file = "update.sh"

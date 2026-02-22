@@ -62,22 +62,22 @@ pub fn render(frame: &mut Frame, app: &mut App) {
     let is_list_focused = matches!(app.focus, Focus::MainList);
     let list_border_color = if is_list_focused { theme_active } else { theme_inactive };
 
-    let current_cat = &app.categories[app.selected_category];
-    let selected_item = app.item_state.selected().unwrap_or(0);
-    let items: Vec<ListItem> = current_cat.items
-        .iter()
-        .enumerate()
-        .map(|(i, item)| {
-            let mut style = Style::default().fg(Color::White);
-            if i == selected_item {
-                style = style.fg(theme_active).add_modifier(Modifier::BOLD);
-                if is_list_focused {
-                    style = style.fg(Color::Black);
-                }
+let current_cat = &app.categories[app.selected_category];
+let selected_item = app.item_state.selected().unwrap_or(0);
+let items: Vec<ListItem> = current_cat.scripts
+    .iter()
+    .enumerate()
+    .map(|(i, script)| {
+        let mut style = Style::default().fg(Color::White);
+        if i == selected_item {
+            style = style.fg(theme_active).add_modifier(Modifier::BOLD);
+            if is_list_focused {
+                style = style.fg(Color::Black);
             }
-            ListItem::new(item.as_str()).style(style)
-        })
-        .collect();
+        }
+        ListItem::new(script.name.as_str()).style(style)
+    })
+    .collect();
 
     let mut main_list = List::new(items)
         .block(Block::default()

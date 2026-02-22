@@ -6,43 +6,57 @@ use crossterm::{
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
 use ratatui::{backend::CrosstermBackend, widgets::ListState, Terminal};
-use std::io;
+use serde::Deserialize;
+use std::{fs, io, path::PathBuf};
 
 pub enum Focus {
     Sidebar,
     MainList,
 }
 
+#[derive(Deserialize)]
+struct Tab {
+    name: String,
+    folder: String,
+}
+
+#[derive(Deserialize)]
+struct TabsFile {
+    tab: Vec<Tab>,
+}
+
+#[derive(Deserialize, Clone)]
+pub struct Script {
+    pub name: String,
+    pub description: String,
+    pub file: String,
+}
+
+#[derive(Deserialize)]
+struct TabDataFile {
+    script: Vec<Script>,
+}
+
 pub struct Category {
     pub name: String,
-    pub items: Vec<String>,
+    pub scripts: Vec<Script>,
 }
 
 pub struct App {
     pub categories: Vec<Category>,
     pub selected_category: usize,
-    pub category_state: ListState, // Tracks blue box in sidebar
-    pub item_state: ListState,     // Tracks blue box in main list
+    pub category_state: ListState,
+    pub item_state: ListState,
     pub focus: Focus,
 }
 
 impl App {
     fn new() -> Self {
-        let categories = vec![
-            Category {
-                name: "Files".into(),
-                items: vec!["main.rs".into(), "ui.rs".into(), "Cargo.toml".into()],
-            },
-            Category {
-                name: "Network".into(),
-                items: vec!["WiFi".into(), "Ethernet".into(), "Bluetooth".into()],
-            },
-            Category {
-                name: "System".into(),
-                items: vec!["CPU Usage".into(), "Memory".into(), "Processes".into()],
-            },
-        ];
-        
+        let categories = load_categories().unwrap_or_else(|e| {
+            eprintln!("Failed to load scripts: {e}");
+            vec![]
+        });
+
         let mut category_state = ListState::default();
         category_state.select(Some(0));
 
@@ -59,12 +73,14 @@ impl App {
     }
 
     pub fn next_category(&mut self) {
+        if self.categories.is_empty() { return; }
         self.selected_category = (self.selected_category + 1) % self.categories.len();
         self.category_state.select(Some(self.selected_category));
         self.item_state.select(Some(0));
     }
 
     pub fn prev_category(&mut self) {
+        if self.categories.is_empty() { return; }
         if self.selected_category == 0 {
             self.selected_category = self.categories.len() - 1;
         } else {
@@ -75,24 +91,46 @@ impl App {
     }
 
     pub fn next_item(&mut self) {
+        let len = self.categories[self.selected_category].scripts.len();
+        if len == 0 { return; }
         let i = match self.item_state.selected() {
-            Some(i) => {
-                if i >= self.categories[self.selected_category].items.len() - 1 { 0 } else { i + 1 }
-            }
+            Some(i) => if i >= len - 1 { 0 } else { i + 1 },
             None => 0,
         };
         self.item_state.select(Some(i));
     }
 
     pub fn prev_item(&mut self) {
+        let len = self.categories[self.selected_category].scripts.len();
+        if len == 0 { return; }
         let i = match self.item_state.selected() {
-            Some(i) => {
-                if i == 0 { self.categories[self.selected_category].items.len() - 1 } else { i - 1 }
-            }
+            Some(i) => if i == 0 { len - 1 } else { i - 1 },
             None => 0,
         };
         self.item_state.select(Some(i));
     }
+}
+
+fn load_categories() -> Result<Vec<Category>, Box<dyn std::error::Error>> {
+    let base = PathBuf::from("../scripts");
+
+    let tabs_raw = fs::read_to_string(base.join("tabs.toml"))?;
+    let tabs_file: TabsFile = toml::from_str(&tabs_raw)?;
+
+    let mut categories = Vec::new();
+
+    for tab in tabs_file.tab {
+        let tab_data_path = base.join(&tab.folder).join("tab_data.toml");
+        let tab_data_raw = fs::read_to_string(&tab_data_path)?;
+        let tab_data: TabDataFile = toml::from_str(&tab_data_raw)?;
+
+        categories.push(Category {
+            name: tab.name,
+            scripts: tab_data.script,
+        });
+    }
+
+    Ok(categories)
 }
 
 fn main() -> io::Result<()> {
