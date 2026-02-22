@@ -1,17 +1,28 @@
 mod ui;
+mod popup;
 
 use crossterm::{
     event::{self, KeyCode, KeyEventKind},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
+use include_dir::{include_dir, Dir};
 use ratatui::{backend::CrosstermBackend, widgets::ListState, Terminal};
 use serde::Deserialize;
-use std::{fs, io, path::PathBuf};
+use std::io;
+
+pub static ASSETS: Dir = include_dir!("$CARGO_MANIFEST_DIR/../scripts");
 
 pub enum Focus {
     Sidebar,
     MainList,
+}
+
+pub enum Popup {
+    None,
+    Preview { scroll: u16 },
+    Confirm,
+    Running,
 }
 
 #[derive(Deserialize)]
@@ -39,6 +50,7 @@ struct TabDataFile {
 
 pub struct Category {
     pub name: String,
+    pub folder: String,
     pub scripts: Vec<Script>,
 }
 
@@ -48,6 +60,7 @@ pub struct App {
     pub category_state: ListState,
     pub item_state: ListState,
     pub focus: Focus,
+    pub popup: Popup,
 }
 
 impl App {
@@ -69,7 +82,13 @@ impl App {
             category_state,
             item_state,
             focus: Focus::Sidebar,
+            popup: Popup::None,
         }
+    }
+
+    pub fn selected_script(&self) -> Option<&Script> {
+        let i = self.item_state.selected()?;
+        self.categories[self.selected_category].scripts.get(i)
     }
 
     pub fn next_category(&mut self) {
@@ -111,21 +130,25 @@ impl App {
     }
 }
 
-fn load_categories() -> Result<Vec<Category>, Box<dyn std::error::Error>> {
-    let base = PathBuf::from("../scripts");
+fn read_asset_str(path: &str) -> Result<String, Box<dyn std::error::Error>> {
+    let file = ASSETS.get_file(path).ok_or_else(|| format!("Asset not found: {path}"))?;
+    let text = file.contents_utf8().ok_or("File is not valid UTF-8")?;
+    Ok(text.to_string())
+}
 
-    let tabs_raw = fs::read_to_string(base.join("tabs.toml"))?;
+fn load_categories() -> Result<Vec<Category>, Box<dyn std::error::Error>> {
+    let tabs_raw = read_asset_str("tabs.toml")?;
     let tabs_file: TabsFile = toml::from_str(&tabs_raw)?;
 
     let mut categories = Vec::new();
 
     for tab in tabs_file.tab {
-        let tab_data_path = base.join(&tab.folder).join("tab_data.toml");
-        let tab_data_raw = fs::read_to_string(&tab_data_path)?;
+        let tab_data_raw = read_asset_str(&format!("{}/tab_data.toml", tab.folder))?;
         let tab_data: TabDataFile = toml::from_str(&tab_data_raw)?;
 
         categories.push(Category {
             name: tab.name,
+            folder: tab.folder,
             scripts: tab_data.script,
         });
     }
@@ -148,21 +171,55 @@ fn main() -> io::Result<()> {
         if event::poll(std::time::Duration::from_millis(16))? {
             if let event::Event::Key(key) = event::read()? {
                 if key.kind == KeyEventKind::Press {
-                    match key.code {
-                        KeyCode::Char('q') => break,
-                        KeyCode::Tab => app.next_category(),
-                        KeyCode::BackTab => app.prev_category(),
-                        KeyCode::Left => app.focus = Focus::Sidebar,
-                        KeyCode::Right => app.focus = Focus::MainList,
-                        KeyCode::Down => match app.focus {
-                            Focus::Sidebar => app.next_category(),
-                            Focus::MainList => app.next_item(),
+                    match &app.popup {
+                        Popup::None => match key.code {
+                            KeyCode::Char('q') => break,
+                            KeyCode::Tab => app.next_category(),
+                            KeyCode::BackTab => app.prev_category(),
+                            KeyCode::Left => app.focus = Focus::Sidebar,
+                            KeyCode::Right => app.focus = Focus::MainList,
+                            KeyCode::Down => match app.focus {
+                                Focus::Sidebar => app.next_category(),
+                                Focus::MainList => app.next_item(),
+                            },
+                            KeyCode::Up => match app.focus {
+                                Focus::Sidebar => app.prev_category(),
+                                Focus::MainList => app.prev_item(),
+                            },
+                            KeyCode::Char('p') | KeyCode::Char('P') => {
+                                if matches!(app.focus, Focus::MainList) {
+                                    if app.selected_script().is_some() {
+                                        app.popup = Popup::Preview { scroll: 0 };
+                                    }
+                                }
+                            }
+                            KeyCode::Enter => {
+                                if matches!(app.focus, Focus::MainList) {
+                                    if app.selected_script().is_some() {
+                                        app.popup = Popup::Confirm;
+                                    }
+                                }
+                            }
+                            _ => {}
                         },
-                        KeyCode::Up => match app.focus {
-                            Focus::Sidebar => app.prev_category(),
-                            Focus::MainList => app.prev_item(),
+                        Popup::Preview { scroll } => {
+                            let current_scroll = *scroll;
+                            match key.code {
+                                KeyCode::Esc => app.popup = Popup::None,
+                                KeyCode::Down => app.popup = Popup::Preview { scroll: current_scroll + 1 },
+                                KeyCode::Up => app.popup = Popup::Preview { scroll: current_scroll.saturating_sub(1) },
+                                _ => {}
+                            }
+                        }
+                        Popup::Confirm => match key.code {
+                            KeyCode::Char('y') | KeyCode::Char('Y') => app.popup = Popup::Running,
+                            KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => app.popup = Popup::None,
+                            _ => {}
                         },
-                        _ => {}
+                        Popup::Running => match key.code {
+                            KeyCode::Esc => app.popup = Popup::None,
+                            _ => {}
+                        },
                     }
                 }
             }
