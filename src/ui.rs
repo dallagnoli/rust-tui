@@ -7,81 +7,110 @@ use ratatui::{
 use crate::{App, Focus};
 
 pub fn render(frame: &mut Frame, app: &mut App) {
-    // 1. Root Layout: Split vertically for the Footer
-    let chunks = Layout::default()
+    let theme_active = Color::Blue;
+    let theme_inactive = Color::White;
+    let theme_title = Color::Yellow;
+
+    let root_chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Min(0),    // Main content area
-            Constraint::Length(1), // Footer help bar
-        ])
+        .constraints([Constraint::Min(0), Constraint::Length(3)])
         .split(frame.area());
 
-    // 2. Content Layout: Split horizontally for Sidebar/Main List
-    let main_layout = Layout::default()
+    let main_chunks = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([
-            Constraint::Percentage(30), 
-            Constraint::Percentage(70)
-        ])
-        .split(chunks[0]);
+        .constraints([Constraint::Percentage(30), Constraint::Percentage(70)])
+        .split(root_chunks[0]);
 
-    // --- SIDEBAR RENDERING ---
-    let sidebar_border_style = match app.focus {
-        Focus::Sidebar => Style::default().fg(Color::Yellow),
-        _ => Style::default().fg(Color::DarkGray),
-    };
+    // --- SIDEBAR (TABS) ---
+    let is_sidebar_focused = matches!(app.focus, Focus::Sidebar);
+    let sidebar_border_color = if is_sidebar_focused { theme_active } else { theme_inactive };
 
     let category_names: Vec<ListItem> = app.categories
         .iter()
         .enumerate()
         .map(|(i, c)| {
-            let mut style = Style::default();
-            if i == app.selected_category {
-                style = style.fg(Color::Yellow).add_modifier(Modifier::BOLD);
-                if let Focus::Sidebar = app.focus {
-                    style = style.bg(Color::Rgb(50, 50, 50)); 
+            let is_selected = i == app.selected_category;
+            let mut style = Style::default().fg(Color::White);
+            
+            if is_selected {
+                // Selected text is blue unless focused (then it's black on blue bg)
+                style = style.fg(theme_active).add_modifier(Modifier::BOLD);
+                if is_sidebar_focused {
+                    style = style.fg(Color::Black);
                 }
             }
             ListItem::new(c.name.as_str()).style(style)
         })
         .collect();
 
-    let sidebar = List::new(category_names)
+    let mut sidebar_list = List::new(category_names)
         .block(Block::default()
             .title(" Categories ")
+            .title_style(Style::default().fg(theme_title))
             .borders(Borders::ALL)
-            .border_style(sidebar_border_style));
-    frame.render_widget(sidebar, main_layout[0]);
-
-    // --- MAIN LIST RENDERING ---
-    let main_border_style = match app.focus {
-        Focus::MainList => Style::default().fg(Color::Yellow),
-        _ => Style::default().fg(Color::DarkGray),
-    };
-
-    let current_cat = &app.categories[app.selected_category];
-    let items: Vec<ListItem> = current_cat.items
-        .iter()
-        .map(|i| ListItem::new(i.as_str()))
-        .collect();
-
-    let list = List::new(items)
-        .block(Block::default()
-            .title(format!(" {} ", current_cat.name))
-            .borders(Borders::ALL)
-            .border_style(main_border_style))
-        .highlight_style(Style::default().bg(Color::Blue).add_modifier(Modifier::BOLD))
+            .border_style(Style::default().fg(sidebar_border_color)))
         .highlight_symbol(">> ");
 
-    frame.render_stateful_widget(list, main_layout[1], &mut app.item_state);
+    // Apply the Blue Selection Box only if focused
+    if is_sidebar_focused {
+        sidebar_list = sidebar_list.highlight_style(Style::default().bg(theme_active));
+    }
 
-    // --- FOOTER RENDERING ---
-    let help_menu = match app.focus {
-        Focus::Sidebar => " Navigate: ↑/↓ | Enter List: → | Switch Category: Tab | Quit: q ",
-        Focus::MainList => " Select Item: ↑/↓ | Back to Sidebar: ← | Switch Category: Tab | Quit: q ",
+    frame.render_stateful_widget(sidebar_list, main_chunks[0], &mut app.category_state);
+
+    // --- MAIN LIST (COMMANDS) ---
+    let is_list_focused = matches!(app.focus, Focus::MainList);
+    let list_border_color = if is_list_focused { theme_active } else { theme_inactive };
+
+    let current_cat = &app.categories[app.selected_category];
+    let selected_item = app.item_state.selected().unwrap_or(0);
+    let items: Vec<ListItem> = current_cat.items
+        .iter()
+        .enumerate()
+        .map(|(i, item)| {
+            let mut style = Style::default().fg(Color::White);
+            if i == selected_item {
+                style = style.fg(theme_active).add_modifier(Modifier::BOLD);
+                if is_list_focused {
+                    style = style.fg(Color::Black);
+                }
+            }
+            ListItem::new(item.as_str()).style(style)
+        })
+        .collect();
+
+    let mut main_list = List::new(items)
+        .block(Block::default()
+            .title(format!(" {} ", current_cat.name))
+            .title_style(Style::default().fg(theme_title))
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(list_border_color)))
+        .highlight_symbol("> ");
+
+    // Apply the Blue Selection Box only if focused
+    if is_list_focused {
+        main_list = main_list.highlight_style(
+            Style::default()
+                .bg(theme_active)
+                .fg(Color::Black)
+                .add_modifier(Modifier::BOLD),
+        );
+    }
+
+    frame.render_stateful_widget(main_list, main_chunks[1], &mut app.item_state);
+
+    // --- FOOTER ---
+    let help_text = match app.focus {
+        Focus::Sidebar => "Navigate: ↑/↓ | Focus List: → | Switch Tab: Tab | Quit: q",
+        Focus::MainList => "Select Item: ↑/↓ | Focus Sidebar: ← | Switch Tab: Tab | Quit: q",
     };
 
-    let footer = Paragraph::new(help_menu)
-        .style(Style::default().fg(Color::DarkGray).bg(Color::Black));
-    frame.render_widget(footer, chunks[1]);
+    let footer = Paragraph::new(help_text)
+        .block(Block::default()
+            .title(" Keys ")
+            .title_style(Style::default().fg(theme_title))
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(theme_inactive)));
+    
+    frame.render_widget(footer, root_chunks[1]);
 }

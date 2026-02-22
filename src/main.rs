@@ -21,7 +21,8 @@ pub struct Category {
 pub struct App {
     pub categories: Vec<Category>,
     pub selected_category: usize,
-    pub item_state: ListState,
+    pub category_state: ListState, // Tracks blue box in sidebar
+    pub item_state: ListState,     // Tracks blue box in main list
     pub focus: Focus,
 }
 
@@ -41,12 +42,17 @@ impl App {
                 items: vec!["CPU Usage".into(), "Memory".into(), "Processes".into()],
             },
         ];
+        
+        let mut category_state = ListState::default();
+        category_state.select(Some(0));
+
         let mut item_state = ListState::default();
         item_state.select(Some(0));
 
         Self {
             categories,
             selected_category: 0,
+            category_state,
             item_state,
             focus: Focus::Sidebar,
         }
@@ -54,6 +60,7 @@ impl App {
 
     pub fn next_category(&mut self) {
         self.selected_category = (self.selected_category + 1) % self.categories.len();
+        self.category_state.select(Some(self.selected_category));
         self.item_state.select(Some(0));
     }
 
@@ -63,6 +70,7 @@ impl App {
         } else {
             self.selected_category -= 1;
         }
+        self.category_state.select(Some(self.selected_category));
         self.item_state.select(Some(0));
     }
 
@@ -88,7 +96,6 @@ impl App {
 }
 
 fn main() -> io::Result<()> {
-    // Setup Terminal
     enable_raw_mode()?;
     let mut stdout = io::stdout();
     execute!(stdout, EnterAlternateScreen)?;
@@ -105,16 +112,10 @@ fn main() -> io::Result<()> {
                 if key.kind == KeyEventKind::Press {
                     match key.code {
                         KeyCode::Char('q') => break,
-
-                        // GLOBAL NAVIGATION
                         KeyCode::Tab => app.next_category(),
                         KeyCode::BackTab => app.prev_category(),
-
-                        // FOCUS SWITCHING
                         KeyCode::Left => app.focus = Focus::Sidebar,
                         KeyCode::Right => app.focus = Focus::MainList,
-
-                        // CONTEXTUAL NAVIGATION
                         KeyCode::Down => match app.focus {
                             Focus::Sidebar => app.next_category(),
                             Focus::MainList => app.next_item(),
@@ -130,7 +131,6 @@ fn main() -> io::Result<()> {
         }
     }
 
-    // Cleanup
     disable_raw_mode()?;
     execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
     Ok(())
